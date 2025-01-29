@@ -18,7 +18,7 @@ def get_int_var(lat_target, lon_target, lats, lons, WRF_var):
     return interpolated_value
 
 
-# Find the closest grid point for each site
+# Find the closest grid point with same PFT for each site
 def find_nearest_grid(lat_target, lon_target, lats, lons):
     """Find the nearest grid index for a given lat/lon."""
     dist = np.sqrt((lats - lat_target) ** 2 + (lons - lon_target) ** 2)
@@ -169,7 +169,7 @@ def main():
         method = args.method
     else:  # to run locally for single cases
         start_date = "2012-07-01 01:00:00"
-        end_date = "2012-07-31 00:00:00"
+        end_date = "2012-07-30 00:00:00"
         wrf_paths = [
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250107_155336_ALPS_3km",
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250105_193347_ALPS_9km",

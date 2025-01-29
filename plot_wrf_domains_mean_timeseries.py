@@ -12,9 +12,9 @@ from datetime import datetime
 
 outfolder = "/home/c707/c7071034/Github/WRF_VPRM_post/plots/"
 start_date = "2012-07-01 01:00:00"
-end_date = "2012-07-31 00:00:00"
+end_date = "2012-07-30 00:00:00"
 STD_TOPO = 100
-columns = ["GPP", "RECO", "NEE", "T2"]
+columns = ["GPP_pmodel", "GPP", "RECO", "NEE", "T2"]
 
 # Save to CSV
 merged_df_gt = pd.read_csv(
@@ -79,6 +79,8 @@ for column in columns:
     # Extract data for the current variable across all resolutions
     for res in resolutions:
         # Extract the series
+        if f"{column}_{res}" == "GPP_pmodel_CAMS":
+            continue
         data_series = merged_df_gt[f"{column}_{res}"]
         data_series_lt = merged_df_lt[f"{column}_{res}"]
         # Skip NaN values for CAMS data during plotting
@@ -113,7 +115,7 @@ for column in columns:
     plt.savefig(
         f"{outfolder}timeseries_{column}_domain_averaged_std_topo_{STD_TOPO}_{start_date}_{end_date}.png"
     )
-    plt.close
+    plt.close()
 
 resolutions_diff = ["3km", "9km", "27km"]
 
@@ -148,7 +150,7 @@ for column in columns:
     plt.savefig(
         f"{outfolder}timeseries_diff_of_54km_{column}_domain_averaged_std_topo_{STD_TOPO}_{start_date}_{end_date}.png"
     )
-    plt.close
+    plt.close()
 
 
 # Create separate plots for each variable
@@ -157,30 +159,44 @@ for column in columns:
 
     # Extract data for the current variable across all resolutions
     for res in resolutions:
-        # Extract the series
-        data_series = hourly_avg[f"{column}_{res}"]
-        data_series_lt = hourly_avg_lt[f"{column}_{res}"]
-
         # Skip NaN values for CAMS data during plotting
-        if res == "CAMS":
+        if res == "CAMS" and f"{column}_{res}" != "GPP_pmodel_CAMS":
             data_series = data_series.dropna()
             data_series_lt = data_series_lt.dropna()
+            # Plot the data
+            plt.plot(
+                data_series.index,
+                data_series,
+                label=f"{column} {res} > std {STD_TOPO}",
+                linestyle="-",
+                color=resolution_colors[res],
+            )
+            plt.plot(
+                data_series_lt.index,
+                data_series_lt,
+                label=f"{column} {res} < std {STD_TOPO}",
+                linestyle=":",
+                color=resolution_colors[res],
+            )
 
-        # Plot the data
-        plt.plot(
-            data_series.index,
-            data_series,
-            label=f"{column} {res} > std {STD_TOPO}",
-            linestyle="-",
-            color=resolution_colors[res],
-        )
-        plt.plot(
-            data_series_lt.index,
-            data_series_lt,
-            label=f"{column} {res} < std {STD_TOPO}",
-            linestyle=":",
-            color=resolution_colors[res],
-        )
+        if f"{column}_{res}" != "GPP_pmodel_CAMS":
+            data_series = hourly_avg[f"{column}_{res}"]
+            data_series_lt = hourly_avg_lt[f"{column}_{res}"]
+            # Plot the data
+            plt.plot(
+                data_series.index,
+                data_series,
+                label=f"{column} {res} > std {STD_TOPO}",
+                linestyle="-",
+                color=resolution_colors[res],
+            )
+            plt.plot(
+                data_series_lt.index,
+                data_series_lt,
+                label=f"{column} {res} < std {STD_TOPO}",
+                linestyle=":",
+                color=resolution_colors[res],
+            )
 
     # Customize the plot
     plt.title(f"Comparison of {column} Across Resolutions")
@@ -194,7 +210,7 @@ for column in columns:
     plt.savefig(
         f"{outfolder}timeseries_hourly_{column}_domain_averaged_std_topo_{STD_TOPO}_{start_date}_{end_date}.png"
     )
-    plt.close
+    plt.close()
 
 resolutions_diff = ["3km", "9km", "27km"]
 
@@ -229,7 +245,42 @@ for column in columns:
     plt.savefig(
         f"{outfolder}timeseries_hourly_diff_of_54km_{column}_domain_averaged_std_topo_{STD_TOPO}_{start_date}_{end_date}.png"
     )
-    plt.close
+    plt.close()
+
+
+resolutions = ["3km", "9km", "27km", "54km"]
+
+plt.figure(figsize=(10, 6))
+# Extract data for the current variable across all resolutions
+for res in resolutions_diff:
+    plt.plot(
+        hourly_avg.index,
+        hourly_avg[f"GPP_{res}"] - hourly_avg[f"GPP_pmodel_{res}"],
+        label=f"{res} > std {STD_TOPO}",
+        linestyle="-",
+        color=resolution_colors[res],
+    )
+    plt.plot(
+        hourly_avg_lt.index,
+        hourly_avg_lt[f"GPP_{res}"] - hourly_avg_lt[f"GPP_pmodel_{res}"],
+        label=f"{res} < std {STD_TOPO}",
+        linestyle=":",
+        color=resolution_colors[res],
+    )
+
+# Customize the plot
+plt.title(f"Difference of GPP_WRF - GPP_pmodel Across Resolutions")
+plt.xlabel("Time")
+plt.ylabel("GPP")
+plt.legend()
+plt.grid(True)
+
+# Show the plot
+plt.tight_layout()
+plt.savefig(
+    f"{outfolder}timeseries_hourly_diff_of GPP_WRF_vs_pmodel_domain_averaged_std_topo_{STD_TOPO}_{start_date}_{end_date}.png"
+)
+plt.close()
 
 
 print("finished")

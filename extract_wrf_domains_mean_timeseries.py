@@ -40,7 +40,7 @@ def proj_on_finer_WRF_grid(
         (lats_coarse.flatten(), lons_coarse.flatten()),
         var_coarse.flatten(),
         (lats_fine, lons_fine),
-        method="nearest",
+        method="linear",
     ).reshape(WRF_var_3km.shape)
     return proj_var
 
@@ -97,7 +97,7 @@ def extract_datetime_from_filename(filename):
 ################################# INPUT ##############################################
 
 start_date = "2012-07-01 01:00:00"
-end_date = "2012-07-31 00:00:00"
+end_date = "2012-07-30 00:00:00"
 wrf_paths = [
     "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250107_155336_ALPS_3km",
     "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250105_193347_ALPS_9km",
@@ -157,6 +157,15 @@ for STD_TOPO in STD_TOPOs:
         data_row_27km = {col: 0 for col in df_out_3km.columns}
         data_row_54km = {col: 0 for col in df_out_3km.columns}
         data_row_cams = {col: 0 for col in df_out_3km.columns}
+        # define cold only for GPP
+        df_out_P_3km = pd.DataFrame(index=time_index, columns=["GPP"])
+        df_out_P_9km = pd.DataFrame(index=time_index, columns=["GPP"])
+        df_out_P_27km = pd.DataFrame(index=time_index, columns=["GPP"])
+        df_out_P_54km = pd.DataFrame(index=time_index, columns=["GPP"])
+        data_row_P_3km = {col: 0 for col in df_out_P_3km.columns}
+        data_row_P_9km = {col: 0 for col in df_out_P_3km.columns}
+        data_row_P_27km = {col: 0 for col in df_out_P_3km.columns}
+        data_row_P_54km = {col: 0 for col in df_out_P_3km.columns}
 
         for wrf_file in file_list:
             time = extract_datetime_from_filename(wrf_file)
@@ -302,6 +311,64 @@ for STD_TOPO in STD_TOPOs:
                 data_row_27km[column] = WRF_var_27km_topo
                 data_row_54km[column] = WRF_var_54km_topo
                 data_row_cams[column] = CAMS_topo
+
+                if column == "GPP":
+                    time_str = time.strftime("%Y-%m-%d_%H:%M:%S")
+
+                    nc_fid3km = nc.Dataset(
+                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_3km_"
+                        + time_str
+                        + ".nc",
+                        "r",
+                    )
+                    gpp_P_3km = nc_fid3km.variables["GPP_Pmodel"][:, :]
+                    nc_fid9km = nc.Dataset(
+                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_9km_"
+                        + time_str
+                        + ".nc",
+                        "r",
+                    )
+                    gpp_P_9km = nc_fid9km.variables["GPP_Pmodel"][:, :]
+                    nc_fid27km = nc.Dataset(
+                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_27km_"
+                        + time_str
+                        + ".nc",
+                        "r",
+                    )
+                    gpp_P_27km = nc_fid27km.variables["GPP_Pmodel"][:, :]
+                    nc_fid54km = nc.Dataset(
+                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_54km_"
+                        + time_str
+                        + ".nc",
+                        "r",
+                    )
+                    gpp_P_54km = nc_fid54km.variables["GPP_Pmodel"][:, :]
+
+                    proj_WRF_P_var_9km = proj_on_finer_WRF_grid(
+                        lats_9km, lons_9km, gpp_P_9km, lats_fine, lons_fine, WRF_var_3km
+                    )
+                    proj_WRF_P_var_27km = proj_on_finer_WRF_grid(
+                        lats_27km,
+                        lons_27km,
+                        gpp_P_27km,
+                        lats_fine,
+                        lons_fine,
+                        WRF_var_3km,
+                    )
+                    proj_WRF_P_var_54km = proj_on_finer_WRF_grid(
+                        lats_54km,
+                        lons_54km,
+                        gpp_P_54km,
+                        lats_fine,
+                        lons_fine,
+                        WRF_var_3km,
+                    )
+
+                    data_row_P_3km[column] = np.nanmean(gpp_P_3km[mask])
+                    data_row_P_9km[column] = np.nanmean(proj_WRF_P_var_9km[mask])
+                    data_row_P_27km[column] = np.nanmean(proj_WRF_P_var_27km[mask])
+                    data_row_P_54km[column] = np.nanmean(proj_WRF_P_var_54km[mask])
+
                 i += 1
 
             df_out_3km.loc[time, :] = data_row_3km
@@ -309,6 +376,10 @@ for STD_TOPO in STD_TOPOs:
             df_out_27km.loc[time, :] = data_row_27km
             df_out_54km.loc[time, :] = data_row_54km
             df_out_cams.loc[time, :] = data_row_cams
+            df_out_P_3km.loc[time, :] = data_row_P_3km
+            df_out_P_9km.loc[time, :] = data_row_P_9km
+            df_out_P_27km.loc[time, :] = data_row_P_27km
+            df_out_P_54km.loc[time, :] = data_row_P_54km
 
         # Add suffixes to columns
         df_out_3km = df_out_3km.add_suffix("_3km")
@@ -316,10 +387,25 @@ for STD_TOPO in STD_TOPOs:
         df_out_27km = df_out_27km.add_suffix("_27km")
         df_out_54km = df_out_54km.add_suffix("_54km")
         df_out_cams = df_out_cams.add_suffix("_CAMS")
+        df_out_P_3km = df_out_P_3km.add_suffix("_pmodel_3km")
+        df_out_P_9km = df_out_P_9km.add_suffix("_pmodel_9km")
+        df_out_P_27km = df_out_P_27km.add_suffix("_pmodel_27km")
+        df_out_P_54km = df_out_P_54km.add_suffix("_pmodel_54km")
 
         # Merge all DataFrames horizontally
         merged_df = pd.concat(
-            [df_out_3km, df_out_9km, df_out_27km, df_out_54km, df_out_cams], axis=1
+            [
+                df_out_3km,
+                df_out_9km,
+                df_out_27km,
+                df_out_54km,
+                df_out_cams,
+                df_out_P_3km,
+                df_out_P_9km,
+                df_out_P_27km,
+                df_out_P_54km,
+            ],
+            axis=1,
         )
 
         # Save to CSV
