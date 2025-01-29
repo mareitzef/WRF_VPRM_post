@@ -1,29 +1,17 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from datetime import datetime
 import xarray as xr
-from pyrealm.pmodel import PModel, PModelEnvironment
-from pyrealm.splash.splash import SplashModel
-from pyrealm.core.calendar import Calendar
-import pyrealm.pmodel
-from pyrealm.core.pressure import calc_patm
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from scipy.interpolate import griddata
-import cftime
-from scipy.ndimage import generic_filter
+from pyrealm.pmodel import PModel, PModelEnvironment, SubdailyScaler, SubdailyPModel
 import os
 
 
 # Load WRF dataset
 # wrf_path = "/home/madse/Downloads/Fluxnet_Data/wrfout_d01_2012-07-01_12:00:00.nc"  # Replace with your file path
 wrf_paths = [
-    # "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250107_155336_ALPS_3km",
+    "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250107_155336_ALPS_3km",
     "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250105_193347_ALPS_9km",
     "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241229_112716_ALPS_27km",
-    "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241227_183215_ALPS_54km",
+    # "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241227_183215_ALPS_54km",
 ]
 
 
@@ -34,11 +22,24 @@ for wrf_path in wrf_paths:
     wrf_path_dx_str = wrf_path.split("_")[-1]
     # list all files in the wrf_path
     files = os.listdir(wrf_path)
-    files = [f for f in files if f.startswith("wrfout")]
+    files = [f for f in files if f.startswith("wrfout_d01")]
     files.sort()
-
-    for file in files:
+    timesteps = len(files)
+    # get datetime from first file
+    datetimestart = files[0].split("_")[2] + " " + files[0].split("_")[3]
+    wrf_ds = xr.open_dataset(wrf_path + "/" + files[0])
+    temp = wrf_ds["T2"].to_numpy()
+    l, m, n = temp.shape
+    fpar_modis_arr = np.zeros((timesteps, m, n))
+    ppfd_arr = np.zeros((timesteps, m, n))
+    tc_arr = np.zeros((timesteps, m, n))  # Store temperature time series
+    co2_arr = np.zeros((timesteps, m, n))  # Store CO₂ time series
+    patm_arr = np.zeros((timesteps, m, n))  # Store atmospheric pressure
+    vpd_arr = np.zeros((timesteps, m, n))  # Store vapor pressure deficit
+    t = 0
+    for file in files[1:]:
         day = int(file.split("_")[2].split("-")[2])
+
         if day > 30:
             continue
         wrf_ds = xr.open_dataset(wrf_path + "/" + file)
@@ -103,4 +104,49 @@ for wrf_path in wrf_paths:
         xr.DataArray(data, name="GPP_Pmodel").to_netcdf(
             modis_path_out, format="NETCDF4_CLASSIC"
         )
-        print(f"Saved GPP data to {modis_path_out}")
+
+        tc_arr[t, :, :] = temp[0, :, :]
+        co2_arr[t, :, :] = co2[0, :, :]
+        patm_arr[t, :, :] = patm[0, :, :]
+        vpd_arr[t, :, :] = vpd[0, :, :]
+
+        fpar_modis_arr[t, :, :] = fpar_modis[0, :, :]
+        ppfd_arr[t, :, :] = ppfd[0, :, :]
+        t += 1
+
+    env_arr = PModelEnvironment(tc=tc_arr, co2=co2_arr, patm=patm_arr, vpd=vpd_arr)
+    env_arr.summarize()
+
+    # calculate GPP with acclimation
+    datetimes = pd.date_range(
+        start=datetimestart, periods=timesteps, freq="h"
+    ).to_numpy()
+
+    fsscaler = SubdailyScaler(datetimes)
+    fsscaler.set_window(
+        window_center=np.timedelta64(12, "h"),
+        half_width=np.timedelta64(1, "h"),
+    )
+
+    subdailyC3 = SubdailyPModel(
+        env=env_arr,
+        fapar=fpar_modis_arr,
+        ppfd=ppfd_arr,
+        fs_scaler=fsscaler,
+        alpha=1 / 15,
+        allow_holdover=True,
+    )
+
+    t = 0
+    for file in files[1:]:
+        subdailyC3_gpp = subdailyC3.gpp[t, :, :] * gC_to_mumol
+        # print(t, " ", np.nanmax(subdailyC3_gpp))
+        # save data in netcdf
+        date_time = file.split("_")[2] + "_" + file.split("_")[3]
+        gpp_path_out = f"{modis_path}gpp_pmodel/gpp_pmodel_subdailyC3_{wrf_path_dx_str}_{date_time}.nc"
+        xr.DataArray(subdailyC3_gpp, name="GPP_Pmodel").to_netcdf(
+            gpp_path_out, format="NETCDF4_CLASSIC"
+        )
+        t += 1
+
+    print(f"Saved GPP data to {gpp_path_out}")
