@@ -19,10 +19,39 @@ def get_int_var(lat_target, lon_target, lats, lons, WRF_var):
 
 
 # Find the closest grid point with same PFT for each site
-def find_nearest_grid(lat_target, lon_target, lats, lons):
-    """Find the nearest grid index for a given lat/lon."""
-    dist = np.sqrt((lats - lat_target) ** 2 + (lons - lon_target) ** 2)
-    return np.unravel_index(np.argmin(dist), lats.shape)
+def find_nearest_grid(lat_target, lon_target, lats, lons, location_pft, IVGTYP_vprm):
+    """Find the nearest grid index for a given lat/lon with the same PFT."""
+    # Mask grid points that do not match the PFT
+    valid_mask = IVGTYP_vprm == location_pft
+
+    # Get valid lat/lon values
+    valid_lats = np.where(valid_mask, lats, np.nan)
+    valid_lons = np.where(valid_mask, lons, np.nan)
+
+    # Convert latitude and longitude differences to km
+    lat_diff = (
+        valid_lats - lat_target
+    )  # * 111  # approximate conversion factor for degrees to km
+    lon_diff = (
+        valid_lons - lon_target  # * 111 * np.cos(np.radians(lat_target))
+    )  # adjust for latitude
+    dist = np.sqrt(lat_diff**2 + lon_diff**2)
+    dist_km = dist * 111
+    # approximate conversion factor for degrees to km
+
+    # Find the index of the minimum valid distance
+    min_index = np.unravel_index(np.nanargmin(dist), lats.shape)
+
+    # # Debugging prints
+    # print(f"Target lat/lon: ({lat_target}, {lon_target})")
+    # print(f"Valid lats: min={np.nanmin(valid_lats)}, max={np.nanmax(valid_lats)}")
+    # print(f"Valid lons:  min={np.nanmin(valid_lons)}, max={np.nanmax(valid_lons)}")
+    # print(f"Latitude differences: min={np.nanmin(lat_diff)}, max={np.nanmax(lat_diff)}")
+    # print(f"Longitude differences: min={np.nanmin(lon_diff)}, max={np.nanmax(lon_diff)}")
+    # print(f"Distances: min={np.nanmin(dist)}, max={np.nanmax(dist)}")
+    # print(f"Distances (km): min={np.nanmin(dist_km)}, max={np.nanmax(dist_km)}")
+
+    return np.nanmin(dist_km), min_index
 
 
 def extract_datetime_from_filename(filename):
@@ -42,34 +71,245 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
 
     # Define target locations (latitude, longitude)
     locations = [
-        {"name": "CH-Oe2_ref", "CO2_ID": "", "lat": 47.2863, "lon": 7.7343},
-        {"name": "CH-Dav_ref", "CO2_ID": "", "lat": 46.8153, "lon": 9.8559},
-        {"name": "DE-Lkb_ref", "CO2_ID": "", "lat": 49.0996, "lon": 13.3047},
-        {"name": "IT-Lav_ref", "CO2_ID": "", "lat": 45.9562, "lon": 11.2813},
-        {"name": "IT-Ren_ref", "CO2_ID": "", "lat": 46.5869, "lon": 11.4337},
-        {"name": "AT-Neu_ref", "CO2_ID": "", "lat": 47.1167, "lon": 11.3175},
-        {"name": "IT-MBo_ref", "CO2_ID": "", "lat": 46.0147, "lon": 11.0458},
-        {"name": "IT-Tor_ref", "CO2_ID": "", "lat": 45.8444, "lon": 7.5781},
-        {"name": "CH-Lae_ref", "CO2_ID": "", "lat": 47.4781, "lon": 8.3644},
-        {"name": "CH-Oe2_std", "CO2_ID": "_REF", "lat": 47.2863, "lon": 7.7343},
-        {"name": "CH-Dav_std", "CO2_ID": "_REF", "lat": 46.8153, "lon": 9.8559},
-        {"name": "DE-Lkb_std", "CO2_ID": "_REF", "lat": 49.0996, "lon": 13.3047},
-        {"name": "IT-Lav_std", "CO2_ID": "_REF", "lat": 45.9562, "lon": 11.2813},
-        {"name": "IT-Ren_std", "CO2_ID": "_REF", "lat": 46.5869, "lon": 11.4337},
-        {"name": "AT-Neu_std", "CO2_ID": "_REF", "lat": 47.1167, "lon": 11.3175},
-        {"name": "IT-MBo_std", "CO2_ID": "_REF", "lat": 46.0147, "lon": 11.0458},
-        {"name": "IT-Tor_std", "CO2_ID": "_REF", "lat": 45.8444, "lon": 7.5781},
-        {"name": "CH-Lae_std", "CO2_ID": "_REF", "lat": 47.4781, "lon": 8.3644},
-        {"name": "CH-Oe2_tune", "CO2_ID": "_2", "lat": 47.2863, "lon": 7.7343},
-        {"name": "CH-Dav_tune", "CO2_ID": "_2", "lat": 46.8153, "lon": 9.8559},
-        {"name": "DE-Lkb_tune", "CO2_ID": "_3", "lat": 49.0996, "lon": 13.3047},
-        {"name": "IT-Lav_tune", "CO2_ID": "_4", "lat": 45.9562, "lon": 11.2813},
-        {"name": "IT-Ren_tune", "CO2_ID": "_5", "lat": 46.5869, "lon": 11.4337},
-        {"name": "AT-Neu_tune", "CO2_ID": "_4", "lat": 47.1167, "lon": 11.3175},
-        {"name": "IT-MBo_tune", "CO2_ID": "_3", "lat": 46.0147, "lon": 11.0458},
-        {"name": "IT-Tor_tune", "CO2_ID": "_2", "lat": 45.8444, "lon": 7.5781},
-        {"name": "CH-Lae_tune", "CO2_ID": "_2", "lat": 47.4781, "lon": 8.3644},
+        {
+            "name": "CH-Oe2_ref",
+            "CO2_ID": "",
+            "lat": 47.2863,
+            "lon": 7.7343,
+            "pft": 6,  # "CRO",
+        },
+        {
+            "name": "CH-Dav_ref",
+            "CO2_ID": "",
+            "lat": 46.8153,
+            "lon": 9.8559,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "DE-Lkb_ref",
+            "CO2_ID": "",
+            "lat": 49.0996,
+            "lon": 13.3047,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Lav_ref",
+            "CO2_ID": "",
+            "lat": 45.9562,
+            "lon": 11.2813,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Ren_ref",
+            "CO2_ID": "",
+            "lat": 46.5869,
+            "lon": 11.4337,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "AT-Neu_ref",
+            "CO2_ID": "",
+            "lat": 47.1167,
+            "lon": 11.3175,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-MBo_ref",
+            "CO2_ID": "",
+            "lat": 46.0147,
+            "lon": 11.0458,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-Tor_ref",
+            "CO2_ID": "",
+            "lat": 45.8444,
+            "lon": 7.5781,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "CH-Lae_ref",
+            "CO2_ID": "",
+            "lat": 47.4781,
+            "lon": 8.3644,
+            "pft": 3,  # "MF",
+        },
+        {
+            "name": "CH-Oe2_std",
+            "CO2_ID": "_REF",
+            "lat": 47.2863,
+            "lon": 7.7343,
+            "pft": 6,  # "CRO",
+        },
+        {
+            "name": "CH-Dav_std",
+            "CO2_ID": "_REF",
+            "lat": 46.8153,
+            "lon": 9.8559,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "DE-Lkb_std",
+            "CO2_ID": "_REF",
+            "lat": 49.0996,
+            "lon": 13.3047,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Lav_std",
+            "CO2_ID": "_REF",
+            "lat": 45.9562,
+            "lon": 11.2813,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Ren_std",
+            "CO2_ID": "_REF",
+            "lat": 46.5869,
+            "lon": 11.4337,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "AT-Neu_std",
+            "CO2_ID": "_REF",
+            "lat": 47.1167,
+            "lon": 11.3175,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-MBo_std",
+            "CO2_ID": "_REF",
+            "lat": 46.0147,
+            "lon": 11.0458,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-Tor_std",
+            "CO2_ID": "_REF",
+            "lat": 45.8444,
+            "lon": 7.5781,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "CH-Lae_std",
+            "CO2_ID": "_REF",
+            "lat": 47.4781,
+            "lon": 8.3644,
+            "pft": 3,  # "MF",
+        },
+        {
+            "name": "CH-Oe2_tune",
+            "CO2_ID": "_2",
+            "lat": 47.2863,
+            "lon": 7.7343,
+            "pft": 6,  # "CRO",
+        },
+        {
+            "name": "CH-Dav_tune",
+            "CO2_ID": "_2",
+            "lat": 46.8153,
+            "lon": 9.8559,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "DE-Lkb_tune",
+            "CO2_ID": "_3",
+            "lat": 49.0996,
+            "lon": 13.3047,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Lav_tune",
+            "CO2_ID": "_4",
+            "lat": 45.9562,
+            "lon": 11.2813,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "IT-Ren_tune",
+            "CO2_ID": "_5",
+            "lat": 46.5869,
+            "lon": 11.4337,
+            "pft": 1,  # "ENF",
+        },
+        {
+            "name": "AT-Neu_tune",
+            "CO2_ID": "_4",
+            "lat": 47.1167,
+            "lon": 11.3175,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-MBo_tune",
+            "CO2_ID": "_3",
+            "lat": 46.0147,
+            "lon": 11.0458,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "IT-Tor_tune",
+            "CO2_ID": "_2",
+            "lat": 45.8444,
+            "lon": 7.5781,
+            "pft": 7,  # "GRA",
+        },
+        {
+            "name": "CH-Lae_tune",
+            "CO2_ID": "_2",
+            "lat": 47.4781,
+            "lon": 8.3644,
+            "pft": 3,  # "MF",
+        },
     ]
+
+    # Define the remapping dictionary for CORINE vegetation types
+    corine_to_vprm = {
+        24: 1,  # Coniferous Forest (Evergreen)
+        23: 2,  # Broad-leaved Forest (Deciduous)
+        25: 3,
+        29: 3,  # Mixed Forest and Transitional Woodland-Shrub
+        27: 4,
+        28: 4,  # Moors and Heathland, Sclerophyllous Vegetation (Shrubland)
+        35: 5,
+        36: 5,
+        37: 5,  # Wetlands: Inland Marshes, Peat Bogs, Salt Marshes
+        12: 6,
+        13: 6,
+        14: 6,
+        15: 6,
+        16: 6,
+        17: 6,
+        19: 6,
+        20: 6,
+        21: 6,
+        22: 6,  # Cropland
+        18: 7,
+        26: 7,  # Grassland: Pastures, Natural Grasslands
+        # Others mapped to 8 (gray)
+        1: 8,
+        2: 8,
+        3: 8,
+        4: 8,
+        5: 8,
+        6: 8,
+        7: 8,
+        8: 8,
+        9: 8,
+        10: 8,
+        11: 8,
+        30: 8,
+        31: 8,
+        32: 8,
+        33: 8,
+        34: 8,
+        38: 8,
+        39: 8,
+        40: 8,
+        41: 8,
+        42: 8,
+        43: 8,
+        44: 8,
+    }
 
     # Initialize an empty DataFrame with time as the index and locations as columns
     columns = (
@@ -92,6 +332,11 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
         xlat = nc_fid1.variables["XLAT"][0]  # Assuming the first time slice
         xlon = nc_fid1.variables["XLONG"][0]
         WRF_T2 = nc_fid1.variables["T2"][0]
+        hgt = nc_fid1.variables["HGT"][0]
+        IVGTYP = nc_fid1.variables["IVGTYP"][0]
+        IVGTYP_vprm = np.vectorize(corine_to_vprm.get)(
+            IVGTYP[:, :]
+        )  # Create a new array for the simplified vegetation categories
 
         print(nc_f1)
         # Initialize lists to store data for the current timestep
@@ -100,8 +345,8 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
         # Extract data for each location
         for location in locations:
             lat_target, lon_target = location["lat"], location["lon"]
-            WRF_gee = nc_fid1.variables[f"EBIO_GEE{location["CO2_ID"]}"][0, 0, :, :]
-            WRF_res = nc_fid1.variables[f"EBIO_RES{location["CO2_ID"]}"][0, 0, :, :]
+            WRF_gee = nc_fid1.variables[f"EBIO_GEE{location['CO2_ID']}"][0, 0, :, :]
+            WRF_res = nc_fid1.variables[f"EBIO_RES{location['CO2_ID']}"][0, 0, :, :]
 
             if method == "interpolated":
                 # interpolate GEE, RES, and T2 for the current location and append to the row
@@ -116,7 +361,18 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             elif method == "NN":
                 # Get nearest neighbour of GEE, RES, and T2 for the current location and append to the row
 
-                grid_idx = find_nearest_grid(lat_target, lon_target, xlat, xlon)
+                dist_km, grid_idx = find_nearest_grid(
+                    lat_target, lon_target, xlat, xlon, location["pft"], IVGTYP_vprm
+                )
+                print(location, dist_km)
+                # add dist to the large locations dict which contains all the locations
+                for loc in locations:
+                    if loc["name"] == location["name"]:
+                        loc["dist"] = dist_km
+                        loc["hgt_wrf"] = hgt[grid_idx[0], grid_idx[1]]
+                        loc["lat_wrf"] = xlat[grid_idx[0], grid_idx[1]]
+                        loc["lon_wrf"] = xlon[grid_idx[0], grid_idx[1]]
+                        break
 
                 # Assign values to their respective columns
                 data_row[f"{location['name']}_GEE"] = (
@@ -146,6 +402,31 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             output_filename,
         )
     )
+    # write another csv file with the distances but use only the _ref sites
+    df_out_dist = pd.DataFrame(
+        columns=["name", "dist", "hgt_wrf", "lat_wrf", "lon_wrf", "pft"]
+    )
+    dist_rows = []
+    for loc in locations:
+        if "ref" in loc["name"]:
+            dist_rows.append(
+                {
+                    "name": loc["name"],
+                    "dist": loc["dist"],
+                    "hgt_wrf": loc["hgt_wrf"],
+                    "lat_wrf": loc["lat_wrf"],
+                    "lon_wrf": loc["lon_wrf"],
+                    "pft": loc["pft"],
+                }
+            )
+    df_out_dist = pd.concat([df_out_dist, pd.DataFrame(dist_rows)], ignore_index=True)
+    df_out_dist.to_csv(
+        os.path.join(
+            output_dir,
+            f"distances_{method}_{wrf_path.split('_')[-1]}_{start_date.split('_')[0]}_{end_date.split('_')[0]}.csv",
+        )
+    )
+
     return
 
 
@@ -176,7 +457,7 @@ def main():
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241229_112716_ALPS_27km",
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241227_183215_ALPS_54km",
         ]
-        method = "interpolated"  # "NN" nearest neighbour or "interpolated"
+        method = "NN"  # "NN" nearest neighbour or "interpolated"
     for wrf_path in wrf_paths:
         exctract_timeseries(wrf_path, start_date, end_date, method)
     # exctract_timeseries(wrf_path, start_date, end_date,"interpolate")

@@ -96,7 +96,7 @@ def extract_datetime_from_filename(filename):
 
 ################################# INPUT ##############################################
 
-start_date = "2012-07-01 01:00:00"
+start_date = "2012-07-02 00:00:00"
 end_date = "2012-07-30 00:00:00"
 wrf_paths = [
     "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20250107_155336_ALPS_3km",
@@ -106,6 +106,7 @@ wrf_paths = [
 ]
 
 outfolder = "/home/c707/c7071034/Github/WRF_VPRM_post/plots/"
+subdaily = "_subdailyC3"  # "_subdailyC3" or "" to use subdaily GPP
 
 #######################################################################################
 # load CAMS data
@@ -316,28 +317,28 @@ for STD_TOPO in STD_TOPOs:
                     time_str = time.strftime("%Y-%m-%d_%H:%M:%S")
 
                     nc_fid3km = nc.Dataset(
-                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_3km_"
+                        f"/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel{subdaily}_3km_"
                         + time_str
                         + ".nc",
                         "r",
                     )
-                    gpp_P_3km = nc_fid3km.variables["GPP_Pmodel"][:, :]
+                    gpp_P_3km = nc_fid3km.variables["GPP_Pmodel"][:, :].copy()
                     nc_fid9km = nc.Dataset(
-                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_9km_"
+                        f"/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel{subdaily}_9km_"
                         + time_str
                         + ".nc",
                         "r",
                     )
                     gpp_P_9km = nc_fid9km.variables["GPP_Pmodel"][:, :]
                     nc_fid27km = nc.Dataset(
-                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_27km_"
+                        f"/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel{subdaily}_27km_"
                         + time_str
                         + ".nc",
                         "r",
                     )
                     gpp_P_27km = nc_fid27km.variables["GPP_Pmodel"][:, :]
                     nc_fid54km = nc.Dataset(
-                        "/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel_54km_"
+                        f"/scratch/c7071034/DATA/MODIS/MODIS_FPAR/gpp_pmodel/gpp_pmodel{subdaily}_54km_"
                         + time_str
                         + ".nc",
                         "r",
@@ -410,6 +411,6 @@ for STD_TOPO in STD_TOPOs:
 
         # Save to CSV
         merged_df.to_csv(
-            f"{outfolder}timeseries_domain_averaged_std_topo_{STD_TOPO_flag}_{STD_TOPO}_{start_date}_{end_date}.csv",
+            f"{outfolder}timeseries_domain_averaged{subdaily}_std_topo_{STD_TOPO_flag}_{STD_TOPO}_{start_date}_{end_date}.csv",
             index=True,
         )
