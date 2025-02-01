@@ -8,7 +8,6 @@ from scipy.interpolate import griddata
 import argparse
 import sys
 import xarray as xr
-import time
 from scipy.interpolate import RegularGridInterpolator
 
 
@@ -16,6 +15,51 @@ def get_int_var(lat_target, lon_target, lats, lons, WRF_var):
     interpolator = RegularGridInterpolator((lats[:, 0], lons[0, :]), WRF_var)
     interpolated_value = interpolator((lat_target, lon_target))
     return interpolated_value
+
+
+def find_nearest_grid_hgt(
+    lat_target, lon_target, lats, lons, location_pft, IVGTYP_vprm, hgt, hgt_site, radius
+):
+    """Find the nearest grid index for a given lat/lon with the same PFT and lowest height difference."""
+
+    # Get valid lat/lon values
+    valid_mask = IVGTYP_vprm == location_pft
+    valid_lats = np.where(valid_mask, lats, np.nan)
+    valid_lons = np.where(valid_mask, lons, np.nan)
+
+    # Convert latitude and longitude differences to km
+    lat_diff = (
+        valid_lats - lat_target
+    )  # * 111  # approximate conversion factor for degrees to km
+    lon_diff = (
+        valid_lons - lon_target  # * 111 * np.cos(np.radians(lat_target))
+    )  # adjust for latitude
+    dist = np.sqrt(lat_diff**2 + lon_diff**2)
+    dist_km = dist * 111  # approximate conversion factor for degrees to km
+
+    # Mask the distance to only consider points within the radius
+    within_radius_mask = dist_km <= abs(radius)
+    dist_within_radius = np.where(within_radius_mask, dist_km, np.nan)
+
+    # Check if there are valid points within the radius
+    if np.all(np.isnan(dist_within_radius)):
+        return None, None  # No valid points found within the radius
+
+    # Calculate the height difference for points within the radius
+    height_diff_within_radius = np.where(
+        within_radius_mask, np.abs(hgt - hgt_site), np.nan
+    )
+
+    # Get the index of the minimum height difference within the radius
+    min_height_diff_idx = np.unravel_index(
+        np.nanargmin(height_diff_within_radius), lats.shape
+    )
+
+    # Get the value of the distance with the minimum height
+    dist_idx = dist_within_radius[min_height_diff_idx[0], min_height_diff_idx[1]]
+
+    # Return the minimum distance and the index of the minimum height difference
+    return dist_idx, min_height_diff_idx
 
 
 # Find the closest grid point with same PFT for each site
@@ -36,22 +80,23 @@ def find_nearest_grid(lat_target, lon_target, lats, lons, location_pft, IVGTYP_v
         valid_lons - lon_target  # * 111 * np.cos(np.radians(lat_target))
     )  # adjust for latitude
     dist = np.sqrt(lat_diff**2 + lon_diff**2)
-    dist_km = dist * 111
-    # approximate conversion factor for degrees to km
+    dist_km = dist * 111  # approximate conversion factor for degrees to km
 
-    # Find the index of the minimum valid distance
-    min_index = np.unravel_index(np.nanargmin(dist), lats.shape)
-
-    # # Debugging prints
-    # print(f"Target lat/lon: ({lat_target}, {lon_target})")
-    # print(f"Valid lats: min={np.nanmin(valid_lats)}, max={np.nanmax(valid_lats)}")
-    # print(f"Valid lons:  min={np.nanmin(valid_lons)}, max={np.nanmax(valid_lons)}")
-    # print(f"Latitude differences: min={np.nanmin(lat_diff)}, max={np.nanmax(lat_diff)}")
-    # print(f"Longitude differences: min={np.nanmin(lon_diff)}, max={np.nanmax(lon_diff)}")
-    # print(f"Distances: min={np.nanmin(dist)}, max={np.nanmax(dist)}")
-    # print(f"Distances (km): min={np.nanmin(dist_km)}, max={np.nanmax(dist_km)}")
+    min_index = np.unravel_index(
+        np.nanargmin(dist), lats.shape
+    )  # Find the index of the minimum valid distance
 
     return np.nanmin(dist_km), min_index
+
+
+#     # # Debugging prints
+#     # print(f"Target lat/lon: ({lat_target}, {lon_target})")
+#     # print(f"Valid lats: min={np.nanmin(valid_lats)}, max={np.nanmax(valid_lats)}")
+#     # print(f"Valid lons:  min={np.nanmin(valid_lons)}, max={np.nanmax(valid_lons)}")
+#     # print(f"Latitude differences: min={np.nanmin(lat_diff)}, max={np.nanmax(lat_diff)}")
+#     # print(f"Longitude differences: min={np.nanmin(lon_diff)}, max={np.nanmax(lon_diff)}")
+#     # print(f"Distances: min={np.nanmin(dist)}, max={np.nanmax(dist)}")
+#     # print(f"Distances (km): min={np.nanmin(dist_km)}, max={np.nanmax(dist_km)}")
 
 
 def extract_datetime_from_filename(filename):
@@ -77,6 +122,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.2863,
             "lon": 7.7343,
             "pft": 6,  # "CRO",
+            "hgt_site": 452,
         },
         {
             "name": "CH-Dav_ref",
@@ -84,6 +130,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.8153,
             "lon": 9.8559,
             "pft": 1,  # "ENF",
+            "hgt_site": 1639,
         },
         {
             "name": "DE-Lkb_ref",
@@ -91,6 +138,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 49.0996,
             "lon": 13.3047,
             "pft": 1,  # "ENF",
+            "hgt_site": 1308,
         },
         {
             "name": "IT-Lav_ref",
@@ -98,6 +146,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.9562,
             "lon": 11.2813,
             "pft": 1,  # "ENF",
+            "hgt_site": 1353,
         },
         {
             "name": "IT-Ren_ref",
@@ -105,6 +154,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.5869,
             "lon": 11.4337,
             "pft": 1,  # "ENF",
+            "hgt_site": 1730,
         },
         {
             "name": "AT-Neu_ref",
@@ -112,6 +162,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.1167,
             "lon": 11.3175,
             "pft": 7,  # "GRA",
+            "hgt_site": 970,
         },
         {
             "name": "IT-MBo_ref",
@@ -119,6 +170,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.0147,
             "lon": 11.0458,
             "pft": 7,  # "GRA",
+            "hgt_site": 1550,
         },
         {
             "name": "IT-Tor_ref",
@@ -126,6 +178,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.8444,
             "lon": 7.5781,
             "pft": 7,  # "GRA",
+            "hgt_site": 2160,
         },
         {
             "name": "CH-Lae_ref",
@@ -133,6 +186,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.4781,
             "lon": 8.3644,
             "pft": 3,  # "MF",
+            "hgt_site": 689,
         },
         {
             "name": "CH-Oe2_std",
@@ -140,6 +194,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.2863,
             "lon": 7.7343,
             "pft": 6,  # "CRO",
+            "hgt_site": 452,
         },
         {
             "name": "CH-Dav_std",
@@ -147,6 +202,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.8153,
             "lon": 9.8559,
             "pft": 1,  # "ENF",
+            "hgt_site": 1639,
         },
         {
             "name": "DE-Lkb_std",
@@ -154,6 +210,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 49.0996,
             "lon": 13.3047,
             "pft": 1,  # "ENF",
+            "hgt_site": 1308,
         },
         {
             "name": "IT-Lav_std",
@@ -161,6 +218,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.9562,
             "lon": 11.2813,
             "pft": 1,  # "ENF",
+            "hgt_site": 1353,
         },
         {
             "name": "IT-Ren_std",
@@ -168,6 +226,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.5869,
             "lon": 11.4337,
             "pft": 1,  # "ENF",
+            "hgt_site": 1730,
         },
         {
             "name": "AT-Neu_std",
@@ -175,6 +234,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.1167,
             "lon": 11.3175,
             "pft": 7,  # "GRA",
+            "hgt_site": 970,
         },
         {
             "name": "IT-MBo_std",
@@ -182,6 +242,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.0147,
             "lon": 11.0458,
             "pft": 7,  # "GRA",
+            "hgt_site": 1550,
         },
         {
             "name": "IT-Tor_std",
@@ -189,6 +250,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.8444,
             "lon": 7.5781,
             "pft": 7,  # "GRA",
+            "hgt_site": 2160,
         },
         {
             "name": "CH-Lae_std",
@@ -196,6 +258,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.4781,
             "lon": 8.3644,
             "pft": 3,  # "MF",
+            "hgt_site": 689,
         },
         {
             "name": "CH-Oe2_tune",
@@ -203,6 +266,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.2863,
             "lon": 7.7343,
             "pft": 6,  # "CRO",
+            "hgt_site": 452,
         },
         {
             "name": "CH-Dav_tune",
@@ -210,6 +274,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.8153,
             "lon": 9.8559,
             "pft": 1,  # "ENF",
+            "hgt_site": 1639,
         },
         {
             "name": "DE-Lkb_tune",
@@ -217,6 +282,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 49.0996,
             "lon": 13.3047,
             "pft": 1,  # "ENF",
+            "hgt_site": 1308,
         },
         {
             "name": "IT-Lav_tune",
@@ -224,6 +290,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.9562,
             "lon": 11.2813,
             "pft": 1,  # "ENF",
+            "hgt_site": 1353,
         },
         {
             "name": "IT-Ren_tune",
@@ -231,6 +298,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.5869,
             "lon": 11.4337,
             "pft": 1,  # "ENF",
+            "hgt_site": 1730,
         },
         {
             "name": "AT-Neu_tune",
@@ -238,6 +306,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.1167,
             "lon": 11.3175,
             "pft": 7,  # "GRA",
+            "hgt_site": 970,
         },
         {
             "name": "IT-MBo_tune",
@@ -245,6 +314,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 46.0147,
             "lon": 11.0458,
             "pft": 7,  # "GRA",
+            "hgt_site": 1550,
         },
         {
             "name": "IT-Tor_tune",
@@ -252,6 +322,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 45.8444,
             "lon": 7.5781,
             "pft": 7,  # "GRA",
+            "hgt_site": 2160,
         },
         {
             "name": "CH-Lae_tune",
@@ -259,6 +330,7 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
             "lat": 47.4781,
             "lon": 8.3644,
             "pft": 3,  # "MF",
+            "hgt_site": 689,
         },
     ]
 
@@ -327,7 +399,6 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
 
     # Process each WRF file (representing one timestep)
     for nc_f1 in file_list:
-        start_time = time.time()
         nc_fid1 = nc.Dataset(nc_f1, "r")
         xlat = nc_fid1.variables["XLAT"][0]  # Assuming the first time slice
         xlon = nc_fid1.variables["XLONG"][0]
@@ -337,6 +408,8 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
         IVGTYP_vprm = np.vectorize(corine_to_vprm.get)(
             IVGTYP[:, :]
         )  # Create a new array for the simplified vegetation categories
+        dx = (xlat[0, 0] - xlat[1, 0]) * 111
+        radius = dx * 10
 
         print(nc_f1)
         # Initialize lists to store data for the current timestep
@@ -362,9 +435,50 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
                 # Get nearest neighbour of GEE, RES, and T2 for the current location and append to the row
 
                 dist_km, grid_idx = find_nearest_grid(
-                    lat_target, lon_target, xlat, xlon, location["pft"], IVGTYP_vprm
+                    lat_target,
+                    lon_target,
+                    xlat,
+                    xlon,
+                    location["pft"],
+                    IVGTYP_vprm,
+                    hgt,
+                    location["hgt_site"],
+                    radius,
                 )
-                print(location, dist_km)
+                # print(location, dist_km)
+                # add dist to the large locations dict which contains all the locations
+                for loc in locations:
+                    if loc["name"] == location["name"]:
+                        loc["dist"] = dist_km
+                        loc["hgt_wrf"] = hgt[grid_idx[0], grid_idx[1]]
+                        loc["lat_wrf"] = xlat[grid_idx[0], grid_idx[1]]
+                        loc["lon_wrf"] = xlon[grid_idx[0], grid_idx[1]]
+                        break
+
+                # Assign values to their respective columns
+                data_row[f"{location['name']}_GEE"] = (
+                    WRF_gee[grid_idx[0], grid_idx[1]] / 3600
+                )
+                data_row[f"{location['name']}_RES"] = (
+                    WRF_res[grid_idx[0], grid_idx[1]] / 3600
+                )
+                data_row[f"{location['name']}_T2"] = WRF_T2[grid_idx[0], grid_idx[1]]
+
+            elif method == "NNhgt":
+                # Get nearest neighbour of GEE, RES, and T2 for the current location and append to the row
+
+                dist_km, grid_idx = find_nearest_grid_hgt(
+                    lat_target,
+                    lon_target,
+                    xlat,
+                    xlon,
+                    location["pft"],
+                    IVGTYP_vprm,
+                    hgt,
+                    location["hgt_site"],
+                    radius,
+                )
+                # print(location, dist_km)
                 # add dist to the large locations dict which contains all the locations
                 for loc in locations:
                     if loc["name"] == location["name"]:
@@ -387,9 +501,6 @@ def exctract_timeseries(wrf_path, start_date, end_date, method):
         temp_df_out = pd.DataFrame([data_row])
         df_out = pd.concat([df_out, temp_df_out], ignore_index=True)
         # nc_fid1.close()
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Time taken: {elapsed_time:.2f} seconds")
 
     # Set the time as the index of the DataFrame
     df_out.index = [extract_datetime_from_filename(f) for f in file_list]
@@ -440,7 +551,10 @@ def main():
         )
         parser.add_argument("-e", "--end", type=str, help="Format: 2012-07-01 01:00:00")
         parser.add_argument(
-            "-m", "--method", type=str, help="'NN' nearest neighbour or 'interpolated'"
+            "-m",
+            "--method",
+            type=str,
+            help="'NN' nearest neighbour, NNhgt for NN on same height or 'interpolated'",
         )
 
         args = parser.parse_args()
@@ -457,7 +571,7 @@ def main():
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241229_112716_ALPS_27km",
             "/scratch/c7071034/DATA/WRFOUT/WRFOUT_20241227_183215_ALPS_54km",
         ]
-        method = "NN"  # "NN" nearest neighbour or "interpolated"
+        method = "NNhgt"  # "NN" nearest neighbour, NNhgt or "interpolated"
     for wrf_path in wrf_paths:
         exctract_timeseries(wrf_path, start_date, end_date, method)
     # exctract_timeseries(wrf_path, start_date, end_date,"interpolate")
